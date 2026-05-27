@@ -10,7 +10,9 @@ import com.vaultview.ui.VaultViewApp
 import com.vaultview.ui.theme.VaultViewTheme
 
 class MainActivity : ComponentActivity() {
-    private val viewModel: BrowseViewModel by viewModels()
+    private val viewModel: BrowseViewModel by viewModels {
+        BrowseViewModel.factory(applicationContext)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

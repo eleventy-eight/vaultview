@@ -1,11 +1,18 @@
 package com.vaultview.ui
 
+import android.content.Context
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vaultview.data.MediaRepository
 import com.vaultview.model.MediaItem
 import com.vaultview.model.MediaType
+import com.vaultview.providers.LoginCredentials
 import com.vaultview.providers.fake.FakeStorageProvider
+import com.vaultview.providers.mega.MegaProvider
+import com.vaultview.providers.mega.SdkMegaClient
+import com.vaultview.providers.mega.SharedPreferencesMegaSessionStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,18 +26,80 @@ data class BrowseUiState(
     val items: List<MediaItem> = emptyList(),
     val selectedItem: MediaItem? = null,
     val streamUrl: String? = null,
+    val isAuthenticated: Boolean = false,
+    val isLoginInProgress: Boolean = false,
+    val requiresTwoFactorCode: Boolean = false,
     val isLoading: Boolean = true,
     val errorMessage: String? = null
 )
 
 class BrowseViewModel(
-    private val repository: MediaRepository = MediaRepository(FakeStorageProvider())
+    private var repository: MediaRepository,
+    private val primaryRepositoryFactory: () -> MediaRepository
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(BrowseUiState(providerName = repository.providerName))
     val uiState: StateFlow<BrowseUiState> = _uiState.asStateFlow()
 
     init {
+        checkAuthentication()
+    }
+
+    fun login(email: String, password: String, twoFactorCode: String?) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(isLoginInProgress = true, isLoading = false, errorMessage = null)
+            }
+
+            runCatching {
+                repository.login(
+                    LoginCredentials(
+                        email = email.trim(),
+                        password = password,
+                        twoFactorCode = twoFactorCode?.trim()?.takeIf { it.isNotEmpty() }
+                    )
+                )
+            }.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        isAuthenticated = true,
+                        isLoginInProgress = false,
+                        requiresTwoFactorCode = false,
+                        errorMessage = null
+                    )
+                }
+                openFolder("/")
+            }.onFailure { throwable ->
+                _uiState.update {
+                    it.copy(
+                        isAuthenticated = false,
+                        isLoginInProgress = false,
+                        requiresTwoFactorCode = true,
+                        errorMessage = throwable.message ?: "Unable to sign in"
+                    )
+                }
+            }
+        }
+    }
+
+    fun useDemoLibrary() {
+        repository = MediaRepository(FakeStorageProvider())
+        _uiState.value = BrowseUiState(
+            providerName = repository.providerName,
+            isAuthenticated = true
+        )
         openFolder("/")
+    }
+
+    fun logout() {
+        viewModelScope.launch {
+            repository.logout()
+            repository = primaryRepositoryFactory()
+            _uiState.value = BrowseUiState(
+                providerName = repository.providerName,
+                isAuthenticated = false,
+                isLoading = false
+            )
+        }
     }
 
     fun openFolder(path: String) {
@@ -40,7 +109,7 @@ class BrowseViewModel(
             }
 
             runCatching {
-                repository.ensureAuthenticated()
+                check(repository.isAuthenticated()) { "${repository.providerName} is not signed in" }
                 repository.listFolder(path)
             }.onSuccess { media ->
                 _uiState.update {
@@ -48,6 +117,7 @@ class BrowseViewModel(
                         currentPath = path,
                         breadcrumbs = path.toBreadcrumbs(),
                         items = media,
+                        isAuthenticated = true,
                         isLoading = false
                     )
                 }
@@ -114,5 +184,41 @@ class BrowseViewModel(
     private fun String.toBreadcrumbs(): List<String> {
         if (this == "/") return listOf("Home")
         return listOf("Home") + trim('/').split('/').filter { it.isNotBlank() }
+    }
+
+    private fun checkAuthentication() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+
+            val isAuthenticated = runCatching { repository.isAuthenticated() }.getOrDefault(false)
+            _uiState.update {
+                it.copy(isAuthenticated = isAuthenticated, isLoading = false)
+            }
+
+            if (isAuthenticated) {
+                openFolder("/")
+            }
+        }
+    }
+
+    companion object {
+        fun factory(context: Context): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
+                val appContext = context.applicationContext
+                val primaryRepositoryFactory = {
+                    MediaRepository(
+                        MegaProvider(
+                            sessionStore = SharedPreferencesMegaSessionStore(appContext),
+                            client = SdkMegaClient(appContext)
+                        )
+                    )
+                }
+                return BrowseViewModel(
+                    repository = primaryRepositoryFactory(),
+                    primaryRepositoryFactory = primaryRepositoryFactory
+                ) as T
+            }
+        }
     }
 }

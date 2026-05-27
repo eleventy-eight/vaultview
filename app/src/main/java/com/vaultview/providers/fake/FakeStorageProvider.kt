@@ -3,6 +3,7 @@ package com.vaultview.providers.fake
 import com.vaultview.model.MediaItem
 import com.vaultview.model.MediaMetadata
 import com.vaultview.model.MediaType
+import com.vaultview.providers.LoginCredentials
 import com.vaultview.providers.StorageProvider
 import kotlinx.coroutines.delay
 
@@ -33,9 +34,11 @@ class FakeStorageProvider : StorageProvider {
         )
     )
 
-    override suspend fun login() {
+    override suspend fun login(credentials: LoginCredentials) {
         delay(250)
     }
+
+    override suspend fun logout() = Unit
 
     override suspend fun isAuthenticated(): Boolean = true
 

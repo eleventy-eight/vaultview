@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -27,8 +28,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -49,7 +52,11 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -73,7 +80,10 @@ fun VaultViewApp(viewModel: BrowseViewModel) {
         BrowseScreen(
             state = state,
             onOpenItem = viewModel::openItem,
-            onOpenHome = { viewModel.openFolder("/") }
+            onOpenHome = { viewModel.openFolder("/") },
+            onLogout = viewModel::logout,
+            onLogin = viewModel::login,
+            onUseDemoLibrary = viewModel::useDemoLibrary
         )
 
         val selected = state.selectedItem
@@ -104,19 +114,28 @@ fun VaultViewApp(viewModel: BrowseViewModel) {
 private fun BrowseScreen(
     state: BrowseUiState,
     onOpenItem: (MediaItem) -> Unit,
-    onOpenHome: () -> Unit
+    onOpenHome: () -> Unit,
+    onLogout: () -> Unit,
+    onLogin: (String, String, String?) -> Unit,
+    onUseDemoLibrary: () -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 56.dp, vertical = 40.dp)
     ) {
-        Header(state = state, onOpenHome = onOpenHome)
+        Header(state = state, onOpenHome = onOpenHome, onLogout = onLogout)
 
         Spacer(modifier = Modifier.height(28.dp))
 
         when {
             state.isLoading -> LoadingState()
+            !state.isAuthenticated -> LoginScreen(
+                state = state,
+                onLogin = onLogin,
+                onUseDemoLibrary = onUseDemoLibrary
+            )
+
             state.errorMessage != null -> ErrorState(message = state.errorMessage)
             state.items.isEmpty() -> EmptyState()
             else -> MediaGrid(items = state.items, onOpenItem = onOpenItem)
@@ -125,7 +144,7 @@ private fun BrowseScreen(
 }
 
 @Composable
-private fun Header(state: BrowseUiState, onOpenHome: () -> Unit) {
+private fun Header(state: BrowseUiState, onOpenHome: () -> Unit, onLogout: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -148,9 +167,100 @@ private fun Header(state: BrowseUiState, onOpenHome: () -> Unit) {
 
         Button(
             onClick = onOpenHome,
+            enabled = state.isAuthenticated,
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Text("Home")
+        }
+
+        if (state.isAuthenticated) {
+            Spacer(modifier = Modifier.width(14.dp))
+            TextButton(onClick = onLogout) {
+                Text("Sign out")
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoginScreen(
+    state: BrowseUiState,
+    onLogin: (String, String, String?) -> Unit,
+    onUseDemoLibrary: () -> Unit
+) {
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var twoFactorCode by remember { mutableStateOf("") }
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Column(
+            modifier = Modifier.widthIn(max = 520.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Text(
+                text = "Sign in to MEGA",
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text("Email") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Password") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = twoFactorCode,
+                onValueChange = { twoFactorCode = it.filter(Char::isDigit).take(6) },
+                label = { Text("2FA code") },
+                singleLine = true,
+                visualTransformation = VisualTransformation.None,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            state.errorMessage?.let { message ->
+                Text(
+                    text = message,
+                    color = Color(0xFFFFB4AB),
+                    fontSize = 15.sp
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Button(
+                    onClick = { onLogin(email, password, twoFactorCode) },
+                    enabled = email.isNotBlank() && password.isNotBlank() && !state.isLoginInProgress
+                ) {
+                    Text(if (state.isLoginInProgress) "Signing in" else "Sign in")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            TextButton(
+                onClick = onUseDemoLibrary,
+                enabled = !state.isLoginInProgress
+            ) {
+                Text("Use demo library")
+            }
         }
     }
 }

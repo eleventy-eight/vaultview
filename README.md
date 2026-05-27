@@ -12,7 +12,9 @@ This repository contains the first Android project scaffold:
 - Jetpack Compose UI aimed at D-pad and 10-foot browsing
 - Provider-neutral media models and repository
 - Demo storage provider for local UI development
-- MEGA provider boundary with TODOs for official SDK integration
+- MEGA-first sign-in flow
+- MEGA provider boundary with a replaceable SDK client adapter
+- Encrypted local MEGA session storage hook
 - Media3 / ExoPlayer video playback screen
 - Full-screen image viewer with left/right D-pad navigation
 
@@ -33,10 +35,17 @@ app/
 ## Next Implementation Steps
 
 1. Install/open with Android Studio and sync Gradle.
-2. Add the official MEGA Android SDK dependency or local module.
-3. Replace `FakeStorageProvider` injection with a provider selector and `MegaProvider`.
-4. Persist authenticated MEGA sessions with AndroidX Security or MEGA SDK session APIs.
-5. Decide whether MEGA video playback can use direct URLs or needs a local encrypted streaming bridge.
+2. Add the official MEGA Android SDK dependency, local module, or AAR.
+3. Implement `MegaClient` using the MEGA SDK Java/Android bindings.
+4. Replace `MissingMegaClient` in `BrowseViewModel.factory` with the real SDK-backed client.
+5. Map MEGA nodes into `MegaNode` values for folder browsing.
+6. Decide whether MEGA video playback can use direct URLs or needs a local encrypted streaming bridge.
+
+## MEGA SDK Notes
+
+The official MEGA SDK is not currently a simple public Maven dependency. The upstream SDK repository contains Android Java bindings and examples, while the official Android app repository documents a native SDK build flow involving submodules, the Android NDK, and local build steps.
+
+The app isolates this complexity behind `MegaClient`, so the UI and repository code do not need to change when the SDK is wired in.
 
 ## Development Notes
 
